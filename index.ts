@@ -4,17 +4,23 @@ import { ChannelType } from "@vencord/discord-types/enums";
 import { VoiceState } from "@vencord/discord-types/src/stores";
 import { findByPropsLazy } from "@webpack";
 import { PermissionsBits } from "@webpack/common";
-import { AuthenticationStore, ChannelStore, PermissionStore, SelectedChannelStore, UserStore } from "@webpack/common/stores";
+import { AuthenticationStore, ChannelStore, PermissionStore, UserStore } from "@webpack/common/stores";
 
 const { selectVoiceChannel } = findByPropsLazy("selectVoiceChannel", "selectChannel");
 
 let shouldReconnect: boolean = true;
+let shouldReconnectToChannelId: string | null = null;
 
 const settings = definePluginSettings({
-    automaticallyReconnect: {
+    automaticallyReconnectOnDisconnects: {
         type: OptionType.BOOLEAN,
         default: true,
-        description: "Whether to automatically reconnect to voice channels."
+        description: "Whether to automatically reconnect to your last voice channel when disconnected."
+    },
+    automaticallyReconnectOnMoves: {
+        type: OptionType.BOOLEAN,
+        default: true,
+        description: "Whether to automatically reconnect to your last voice channel when moved."
     },
     minimumDelay: {
         type: OptionType.SLIDER,
@@ -45,9 +51,14 @@ function setReconnectFlag(value: boolean) {
     shouldReconnect = value;
 }
 
+function setReconnectToChannel(value: string | null) {
+    if (value && !canJoinChannel(value)) return;
+    shouldReconnectToChannelId = value;
+}
+
 export default definePlugin({
     name: "AutoReconnect",
-    description: "Automatically reconnect to voice channels after a random delay when someone disconnects you.",
+    description: "Automatically reconnect to voice channels after a random delay when someone disconnects or moves you.",
     authors: [
         {
             id: 644298972420374528n,
@@ -62,27 +73,49 @@ export default definePlugin({
                 match: /disconnect\(\){/,
                 replace: "$&$self.updateShouldReconnect(false);"
             }
+        },
+        {
+            find: "this.selectVoiceChannel(null)",
+            replacement: {
+                match: /selectVoiceChannel\((\i)\){/,
+                replace: "$&$self.updateShouldReconnectToChannel($1);"
+            }
+        },
+        {
+            find: "\"DRAGGABLE_USER\"",
+            replacement: {
+                match: /drop.{0,50}channel:(\i).{0,75};/,
+                replace: "$&$self.updateShouldReconnectToChannel($1.id);"
+            }
         }
     ],
     flux: {
         VOICE_STATE_UPDATES({ voiceStates }: { voiceStates: VoiceState[]; }) {
-            if (!settings.store.automaticallyReconnect) return;
+            if (!settings.store.automaticallyReconnectOnDisconnects && !settings.store.automaticallyReconnectOnMoves) return;
 
-            const currentChannelId = SelectedChannelStore.getVoiceChannelId();
             const currentUserId = UserStore.getCurrentUser().id;
 
             for (const state of voiceStates) {
-                const { userId, oldChannelId } = state;
+                const { userId, channelId, oldChannelId } = state;
                 if (userId !== currentUserId) continue;
 
                 if (state.sessionId !== AuthenticationStore.getSessionId()) continue;
 
-                if (oldChannelId && !currentChannelId) {
+                let reconnectTo = shouldReconnectToChannelId ?? oldChannelId;
+                if (!reconnectTo) return;
+
+                let reconnectOnDisconnect = (oldChannelId && !channelId) && settings.store.automaticallyReconnectOnDisconnects;
+                let reconnectOnMove = (shouldReconnectToChannelId && channelId != shouldReconnectToChannelId) && settings.store.automaticallyReconnectOnMoves;
+
+                // update the channel to reconnect to when moved while the setting to auto reconnect on moves is disabled
+                if (!reconnectOnMove && channelId! != reconnectTo) setReconnectToChannel(channelId!);
+
+                if (reconnectOnDisconnect || reconnectOnMove) {
                     if (shouldReconnect) {
-                        const minDelay = Math.max(0.5, settings.store.minimumDelay); // absolute minimum of 0.5 seconds
+                        const minDelay = Math.max(0.5, settings.store.minimumDelay);
                         const maxDelay = settings.store.maximumDelay;
                         setTimeout(() => {
-                            if (canJoinChannel(oldChannelId!)) selectVoiceChannel(oldChannelId);
+                            if (canJoinChannel(reconnectTo!)) selectVoiceChannel(reconnectTo);
                         }, (Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay) * 1000);
                     }
                 } else {
@@ -92,6 +125,10 @@ export default definePlugin({
         }
     },
     updateShouldReconnect(value: boolean) {
+        if (!value) setReconnectToChannel(null);
         setReconnectFlag(value);
+    },
+    updateShouldReconnectToChannel(value: string | null) {
+        setReconnectToChannel(value);
     }
 });
