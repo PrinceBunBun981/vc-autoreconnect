@@ -22,6 +22,11 @@ const settings = definePluginSettings({
         default: true,
         description: "Whether to automatically reconnect to your last voice channel when moved."
     },
+    automaticallyReconnectWhenMovedToLockedChannels: {
+        type: OptionType.BOOLEAN,
+        default: false,
+        description: "Whether to automatically reconnect to your last voice channel when moved to a channel you don't have permission to join."
+    },
     minimumDelay: {
         type: OptionType.SLIDER,
         description: "Minimum delay in seconds before reconnecting.",
@@ -37,6 +42,11 @@ const settings = definePluginSettings({
         default: 1
     }
 });
+
+function isDmChannel(channelId: string) {
+    const channel = ChannelStore.getChannel(channelId);
+    return channel?.isDM() || channel?.isGroupDM() || channel?.isMultiUserDM();
+}
 
 function canJoinChannel(channelId: string) {
     const channel = ChannelStore.getChannel(channelId);
@@ -101,14 +111,18 @@ export default definePlugin({
 
                 if (state.sessionId !== AuthenticationStore.getSessionId()) continue;
 
+                if (isDmChannel(channelId!)) return;
+
                 let reconnectTo = shouldReconnectToChannelId ?? oldChannelId;
                 if (!reconnectTo) return;
+
+                if (settings.store.automaticallyReconnectWhenMovedToLockedChannels && !canJoinChannel(channelId!)) return;
 
                 let reconnectOnDisconnect = (oldChannelId && !channelId) && settings.store.automaticallyReconnectOnDisconnects;
                 let reconnectOnMove = (shouldReconnectToChannelId && channelId != shouldReconnectToChannelId) && settings.store.automaticallyReconnectOnMoves;
 
                 // update the channel to reconnect to when moved while the setting to auto reconnect on moves is disabled
-                if (!reconnectOnMove && channelId! != reconnectTo) setReconnectToChannel(channelId!);
+                if (!reconnectOnMove && channelId! != reconnectTo && canJoinChannel(channelId!)) setReconnectToChannel(channelId!);
 
                 if (reconnectOnDisconnect || reconnectOnMove) {
                     if (shouldReconnect) {
@@ -129,6 +143,12 @@ export default definePlugin({
         setReconnectFlag(value);
     },
     updateShouldReconnectToChannel(value: string | null) {
+        if (isDmChannel(value!)) {
+            setReconnectFlag(false);
+            setReconnectToChannel(null);
+            return;
+        }
+
         setReconnectToChannel(value);
     }
 });
