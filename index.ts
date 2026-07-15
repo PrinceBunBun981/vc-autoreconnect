@@ -45,7 +45,7 @@ const settings = definePluginSettings({
 
 function isDmChannel(channelId: string) {
     const channel = ChannelStore.getChannel(channelId);
-    return channel?.isDM() || channel?.isGroupDM() || channel?.isMultiUserDM();
+    return channel?.isPrivate();
 }
 
 function canJoinChannel(channelId: string) {
@@ -111,7 +111,10 @@ export default definePlugin({
 
                 if (state.sessionId !== AuthenticationStore.getSessionId()) continue;
 
-                if (isDmChannel(channelId!)) return;
+                // don't reconnect to DM VCs; the check for oldChannelId === channelId is because for some reason, Discord sends
+                // THREE voice state updates when leaving a guild VC and joining a DM VC using the "Join Video Call" button
+                // it goes: Guild VC -> Guild VC; Guild VC -> null; undefined -> DM VC
+                if (isDmChannel(channelId!) || isDmChannel(oldChannelId!) || oldChannelId === channelId) return;
 
                 let reconnectTo = shouldReconnectToChannelId ?? oldChannelId;
                 if (!reconnectTo) return;
@@ -143,6 +146,7 @@ export default definePlugin({
         setReconnectFlag(value);
     },
     updateShouldReconnectToChannel(value: string | null) {
+        // i don't know if this is even necessary, but it works therefore i'll leave it
         if (isDmChannel(value!)) {
             setReconnectFlag(false);
             setReconnectToChannel(null);
