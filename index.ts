@@ -114,12 +114,13 @@ export default definePlugin({
                 // don't reconnect to DM VCs; the check for oldChannelId === channelId is because for some reason, Discord sends
                 // THREE voice state updates when leaving a guild VC and joining a DM VC using the "Join Video Call" button
                 // it goes: Guild VC -> Guild VC; Guild VC -> null; undefined -> DM VC
-                if (isDmChannel(channelId!) || isDmChannel(oldChannelId!) || oldChannelId === channelId) return;
+                if (isDmChannel(channelId!) || isDmChannel(oldChannelId!) || oldChannelId === channelId) continue;
 
                 let reconnectTo = shouldReconnectToChannelId ?? oldChannelId;
-                if (!reconnectTo) return;
+                if (!reconnectTo) continue;
 
-                if (settings.store.automaticallyReconnectWhenMovedToLockedChannels && !canJoinChannel(channelId!)) return;
+                const movedToLockedChannel = channelId && !canJoinChannel(channelId);
+                if (movedToLockedChannel && !settings.store.automaticallyReconnectWhenMovedToLockedChannels) continue;
 
                 let reconnectOnDisconnect = (oldChannelId && !channelId) && settings.store.automaticallyReconnectOnDisconnects;
                 let reconnectOnMove = (shouldReconnectToChannelId && channelId != shouldReconnectToChannelId) && settings.store.automaticallyReconnectOnMoves;
