@@ -130,11 +130,10 @@ export default definePlugin({
 
                 if (reconnectOnDisconnect || reconnectOnMove) {
                     if (shouldReconnect) {
-                        const minDelay = Math.max(0.5, settings.store.minimumDelay);
-                        const maxDelay = settings.store.maximumDelay;
+                        const delay = Math.random() * (settings.store.maximumDelay - settings.store.minimumDelay) + settings.store.minimumDelay;
                         setTimeout(() => {
                             if (canJoinChannel(reconnectTo!)) selectVoiceChannel(reconnectTo);
-                        }, (Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay) * 1000);
+                        }, delay * 1000);
                     }
                 } else {
                     setReconnectFlag(true);
